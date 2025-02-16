@@ -13,21 +13,20 @@ from status import *
 from uuid import uuid4
 from constants import *
 from typing import List
-from moviepy.editor import *
 from termcolor import colored
 from selenium_firefox import *
 from selenium import webdriver
-from moviepy.video.fx.all import crop
-from moviepy.config import change_settings
+from moviepy.video.fx.Crop import Crop
 from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.service import Service
 from selenium.webdriver.firefox.options import Options
 from moviepy.video.tools.subtitles import SubtitlesClip
 from webdriver_manager.firefox import GeckoDriverManager
 from datetime import datetime
+from moviepy import *
 
 # Set ImageMagick Path
-change_settings({"IMAGEMAGICK_BINARY": get_imagemagick_path()})
+IMAGEMAGICK_BINARY = get_imagemagick_path()
 
 class YouTube:
     """
@@ -514,14 +513,15 @@ class YouTube:
 
         # Make a generator that returns a TextClip when called with consecutive
         generator = lambda txt: TextClip(
-            txt,
+            text=txt,
             font=os.path.join(get_fonts_dir(), get_font()),
-            fontsize=100,
+            font_size=100,
             color="#FFFF00",
             stroke_color="black",
             stroke_width=5,
             size=(1080, 1920),
             method="caption",
+            text_align="center"
         )
 
         print(colored("[+] Combining images...", "blue"))
@@ -533,23 +533,26 @@ class YouTube:
             for image_path in self.images:
                 clip = ImageClip(image_path)
                 clip.duration = req_dur
-                clip = clip.set_fps(30)
+                clip = clip.with_fps(30)
 
                 # Not all images are same size,
                 # so we need to resize them
                 if round((clip.w/clip.h), 4) < 0.5625:
                     if get_verbose():
                         info(f" => Resizing Image: {image_path} to 1080x1920")
-                    clip = crop(clip, width=clip.w, height=round(clip.w/0.5625), \
-                                x_center=clip.w / 2, \
-                                y_center=clip.h / 2)
+                    clip = clip.with_effects([
+                        Crop(width=clip.w, height=round(clip.w/0.5625),
+                             x_center=clip.w/2, y_center=clip.h/2)
+                    ])
+                    clip = clip.resized((1080, 1920))
                 else:
                     if get_verbose():
                         info(f" => Resizing Image: {image_path} to 1920x1080")
-                    clip = crop(clip, width=round(0.5625*clip.h), height=clip.h, \
-                                x_center=clip.w / 2, \
-                                y_center=clip.h / 2)
-                clip = clip.resize((1080, 1920))
+                    clip = clip.with_effects([
+                        Crop(width=round(0.5625*clip.h), height=clip.h,
+                             x_center=clip.w/2, y_center=clip.h/2)
+                    ])
+                    clip = clip.resized((1080, 1920))
 
                 # FX (Fade In)
                 #clip = clip.fadein(2)
@@ -558,7 +561,7 @@ class YouTube:
                 tot_dur += clip.duration
 
         final_clip = concatenate_videoclips(clips)
-        final_clip = final_clip.set_fps(30)
+        final_clip = final_clip.with_fps(30)
         random_song = choose_random_song()
         
         subtitles_path = self.generate_subtitles(self.tts_path)
@@ -567,20 +570,26 @@ class YouTube:
         equalize_subtitles(subtitles_path, 10)
         
         # Burn the subtitles into the video
-        subtitles = SubtitlesClip(subtitles_path, generator)
+        subtitles = SubtitlesClip(
+            subtitles_path,
+            make_textclip=generator
+        )
 
-        subtitles.set_pos(("center", "center"))
-        random_song_clip = AudioFileClip(random_song).set_fps(44100)
+        # Set position to center
+        subtitles = subtitles.with_position(("center", "center"))
+        random_song_clip = AudioFileClip(random_song).with_fps(44100)
 
-        # Turn down volume
-        random_song_clip = random_song_clip.fx(afx.volumex, 0.1)
+        # Turn down volume (volumex 대신 직접 볼륨 조절)
+        # random_song_clip = random_song_clip.volumex(0.1)  # 볼륨을 10%로 줄임
+        
         comp_audio = CompositeAudioClip([
-            tts_clip.set_fps(44100),
+            tts_clip.with_fps(44100),
             random_song_clip
         ])
-
-        final_clip = final_clip.set_audio(comp_audio)
-        final_clip = final_clip.set_duration(tts_clip.duration)
+        
+        final_clip = final_clip.with_audio(comp_audio)
+        # Set duration to the duration of the TTS
+        
 
         # Add subtitles
         final_clip = CompositeVideoClip([
